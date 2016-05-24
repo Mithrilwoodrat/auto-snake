@@ -2,6 +2,7 @@
 import sys
 from random import randrange, choice
 from math import fabs
+from collections import deque
 
 from PyQt4 import QtGui, QtCore
 
@@ -13,7 +14,7 @@ class Game(QtGui.QWidget):
         self.board_size = 20
         self.size = 300
         self.grid_size = self.size / self.board_size
-        self.speed = 200
+        self.speed = 100
         self.set_directions = ("UP", "DOWN", "LEFT", "RIGHT")
         self.initUI()
 
@@ -26,7 +27,7 @@ class Game(QtGui.QWidget):
         self.setWindowTitle('score:'+ str(self.score))
         qp = QtGui.QPainter()
         qp.begin(self)
-        self.placeFood(qp)
+        self.drawFood(qp)
         self.drawSnake(qp)
         if self.isOver:
             self.gameOver(event, qp)
@@ -65,10 +66,12 @@ class Game(QtGui.QWidget):
         self.snakeCells = [[self.head_x, self.head_y], [self.head_x-1, self.head_y], [self.head_x-2, self.head_y]]
         self.food_x = 0
         self.food_y = 0
+        self.path = []
         self.isOver = False
         self.FoodPlaced = False
+        self.placeFood()
         self.start()
-
+        
     def real_xy(self, x, y):
         return x * self.grid_size, y * self.grid_size
 
@@ -120,6 +123,7 @@ class Game(QtGui.QWidget):
             return False
         elif self.head_y == self.food_y and self.head_x == self.food_x:
             self.FoodPlaced = False
+            self.placeFood()
             self.score += 1
             return True
         elif self.score >= 573:
@@ -131,7 +135,7 @@ class Game(QtGui.QWidget):
         return True
 
     # places the food when no food on the board
-    def placeFood(self, qp):
+    def placeFood(self):
         if self.FoodPlaced == False:
             self.food_x = randrange(self.board_size)
             self.food_y = randrange(self.board_size)
@@ -139,6 +143,8 @@ class Game(QtGui.QWidget):
             print("food:" , self.food_x, self.food_y)
             if not [self.food_x, self.food_y] in self.snakeCells:
                 self.FoodPlaced = True
+
+    def drawFood(self, qp):
         qp.setBrush(QtGui.QColor("green"))
         real_x, real_y = self.real_xy(self.food_x, self.food_y)
         qp.drawRect(real_x, real_y, self.grid_size, self.grid_size)
@@ -159,20 +165,86 @@ class Game(QtGui.QWidget):
         if event.timerId() == self.timer.timerId():
             if self.auto:
                 dis = self.compute_dis()
-                new_coord = self.find_min_path(dis)
-                if new_coord is None:
-                    self.isOver = True
+                new_coord = None
+                dir = self.lastKeyPress
+                if self.FoodPlaced and len(self.path) == 0:
+                    if self.have_path():
+                        self.find_path()
+                    print self.path
+                    if len(self.path) > 0:
+                        new_coord = self.path.pop()
+                        dir = self.coordinate_to_dir(self.snakeCells[0], new_coord)
+                        if dir is None:
+                            new_coord = self.find_nearby_path(dis)
+                            if new_coord is None:
+                                self.isOver = True
+                        else:
+                            dir = self.coordinate_to_dir(self.snakeCells[0], new_coord)
                 else:
-                    dir = self.coordinate_to_dir(self.snakeCells[0], new_coord)
-                    print("old: ", self.snakeCells[0], "new: ", new_coord, "distance: ", dis[self.head_x][self.head_y], dir)
-                    self.lastKeyPress = dir
-            self.set_direction(self.lastKeyPress)
+                    new_coord = self.find_nearby_path(dis)
+                    if new_coord is None:
+                        self.isOver = True
+                    else:
+                        dir = self.coordinate_to_dir(self.snakeCells[0], new_coord)
+                
+                print("food: ", self.food_x, self.food_y, "old: ", self.snakeCells[0], "new: ", new_coord, "distance: ", dis[self.head_x][self.head_y], dir)
+                self.lastKeyPress = dir
+                self.set_direction(dir)
+            else:
+                self.set_direction(self.lastKeyPress)
             self.repaint()
         else:
             QtGui.QFrame.timerEvent(self, event)
 
+    def have_path(self):
+        dis_cur = self.board_size * 2 + 1
+        dis_arr = self.compute_dis()
+        self.previous = [[[-1, -1] for j in range(self.board_size)] for i in range(self.board_size)]
+        visited = [[False for j in range(self.board_size)] for i in range(self.board_size)]
+        not_visited = lambda cell: not visited[cell[0]][cell[1]]
+        cell_safe = lambda cell: not self.in_snake_body(cell) and not self.over_board(cell[0], cell[1])
+        # using queue, can do popleft
+        queue = deque()
+        queue.append([self.head_x, self.head_y])
+        found = False
+        while(len(queue) > 0):
+            cell_p = queue.popleft()
+            cell_x, cell_y = cell_p
+            if cell_x == self.food_x and cell_y == self.food_y:
+                found = True
+                return found
+            visited[cell_x][cell_y] = True
+            nearby = [[cell_x + 1,cell_y],
+                     [cell_x - 1, cell_y],
+                     [cell_x, cell_y + 1],
+                     [cell_x, cell_y - 1]]
 
-    def find_min_path(self, distances):
+            nearby = filter(cell_safe, nearby)
+
+            nearby = filter(not_visited, nearby)
+            for cell in nearby:
+                x, y = cell
+                self.previous[x][y] = [cell_x, cell_y]
+                if x == self.food_x and y == self.food_y:
+                    found = True
+                    self.path.append([self.food_x, self.food_y])
+                    return found
+                visited[x][y] = True
+                queue.append(cell)
+        return found
+            
+    def find_path(self):
+        self.path = []
+        cell = [self.food_x, self.food_y]
+        previous = self.previous
+        while cell != [self.head_x, self.head_y]:
+            self.path.append(cell)
+            cell = previous[cell[0]][cell[1]]
+            if cell == [-1, -1]:
+                return
+
+    # 
+    def find_nearby_path(self, distances):
         cells = [[self.head_x + 1,self.head_y],
                  [self.head_x - 1, self.head_y],
                  [self.head_x, self.head_y + 1],
@@ -187,6 +259,7 @@ class Game(QtGui.QWidget):
         min_path = self.board_size
         min_cell = choice(cells)
 
+       
         for cell in cells:
             dis = distances[cell[0]][cell[1]]
             if  dis <= min_path:
@@ -217,6 +290,7 @@ class Game(QtGui.QWidget):
                 return "LEFT"
             elif c1[0] == c2[0] - 1:
                 return "RIGHT"
+        return None
 
 
 def main():
