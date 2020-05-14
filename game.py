@@ -4,10 +4,10 @@ from random import randrange, choice
 from math import fabs
 from collections import deque
 
-from PyQt4 import QtGui, QtCore
+from PyQt5 import QtGui, QtCore
+from PyQt5.QtWidgets import QApplication, QWidget
 
-
-class Game(QtGui.QWidget):
+class Game(QWidget):
     def __init__(self):
         super(Game, self).__init__()
         self.auto = True
@@ -170,7 +170,7 @@ class Game(QtGui.QWidget):
                 if self.FoodPlaced and len(self.path) == 0:
                     if self.have_path():
                         self.find_path()
-                    print self.path
+                    print(self.path)
                     if len(self.path) > 0:
                         new_coord = self.path.pop()
                         dir = self.coordinate_to_dir(self.snakeCells[0], new_coord)
@@ -251,7 +251,7 @@ class Game(QtGui.QWidget):
                  [self.head_x, self.head_y - 1]]
 
         f = lambda cell: not self.in_snake_body(cell) and not self.over_board(cell[0], cell[1])
-        cells = filter(f, cells)
+        cells = list( filter(f, cells) )
 
         if  cells == []:
             return None
@@ -294,7 +294,7 @@ class Game(QtGui.QWidget):
 
 
 def main():
-    app = QtGui.QApplication(sys.argv)
+    app = QApplication(sys.argv)
     game = Game()
     sys.exit(app.exec_())
 
